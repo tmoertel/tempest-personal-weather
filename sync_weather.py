@@ -1,5 +1,50 @@
 #!/usr/bin/env python3
 
+"""Sync Tempest weather station data from the cloud to a local SQLite3 database.
+
+Author: Tom Moertel <tom@moertel.com>
+Created: July 2023
+
+This command-line tool downloads your Tempest personal weather station data at
+1-minute resolution from the cloud, saving it in a local SQLite3 database of your
+choosing. The data will be saved to a table called `weather`. The table and the
+database will be created if they do not exist.
+
+The first time you run the tool, it will download the entire available history for
+your weather station device(s). From then on, it will only download what it needs. (At
+minimum, the tool downloads the most recent 24 hours' data for each device. This
+allows it to update your local database with any revisions that may have been posted
+to data you've previously downloaded.)
+
+Example usage:
+
+  # Sync data for two weather station devices.
+  sync_weather.py \
+    --api_token "replace this text with your actual API token" \
+    --database $HOME/weather.db \
+    --device_id 123456 789012
+
+  # Compute the record count for each device by querying the database.
+  sqlite3 $HOME/weather.db '
+    SELECT device_id, COUNT(*) AS record_count
+    FROM weather
+    GROUP BY 1
+    '
+
+To get an API token for your personal weather stations, see "Getting Started" at
+https://weatherflow.github.io/Tempest/api/.
+
+If you want to keep a database synchronized, you can run the tool hourly as a cron
+job. For example, the following crontab entry will run the tool to sync data for the
+devices 123 and 456:
+
+    1~30 * * * * $HOME/bin/sync_weather.py --api_token abc...def --database $HOME/weather.db --device_id 123 456
+
+This crontab entry assumes that you have copied the sync_weather.py executable to your
+$HOME/bin directory. If you've installed it elsewhere, update the entry accordingly.
+
+"""
+
 import argparse
 import collections
 import csv
@@ -61,7 +106,7 @@ CREATE TABLE IF NOT EXISTS weather (
 
 # SQL statement used to insert weather data into the database.
 # We allow inserted rows to replace existing rows for the same device and
-# timestamp because we want to allow for the possibility that Weatherflow
+# timestamp because we want to allow for the possibility that Tempest
 # may revise data, and we prefer the most-recent version of any data we
 # already have.
 INSERT_WEATHER_DATA_SQL_TEMPLATE = f"""
@@ -163,7 +208,7 @@ def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_times
     """Syncs data for a device over a time range."""
     range_start = start_timestamp
 
-    # Work backward to the most-recent timestamp we already have data for.
+    # Work backward to the start of the range.
     while range_start < end_timestamp:
         # Limit each request to one days' data; otherwise, we won't get 1-minute resolution.
         start_timestamp = max(end_timestamp - ONE_DAY_IN_SECONDS, range_start)
@@ -176,7 +221,7 @@ def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_times
         data_rows = _fetch_device_data_for_range(
             api_token, device_id, start_timestamp, end_timestamp
         )
-        # Exit the loop if we've exhausted the data from Weatherflow.
+        # Exit the loop if we've exhausted the data from Tempest.
         if not data_rows:
             break
         # Write the data to the weather database.
@@ -197,7 +242,7 @@ def _fetch_device_data_for_range(api_token, device_id, start_timestamp, end_time
     """Fetches weather data for a device over a range to time.
 
     Args:
-      api_token: An Weatherflow API token authorized to gather data for the device.
+      api_token: An Tempest API token authorized to gather data for the device.
 
       device_id: The id of the personal weather station for which to fetch the data.
 
@@ -206,7 +251,7 @@ def _fetch_device_data_for_range(api_token, device_id, start_timestamp, end_time
       end_timestamp: The end of the range in seconds since the epoch.
 
     Returns a list of time-series entries, with each entry being a dict that maps
-    column names to their corresponding values, as returned by the Weatherflow API.
+    column names to their corresponding values, as returned by the Tempest API.
     (The expected column names are those given in the `COLUMNS` global variable.)
 
     """
@@ -225,7 +270,7 @@ def _fetch_device_data_for_range(api_token, device_id, start_timestamp, end_time
 def _write_data_for_device(con, data_rows):
     """Writes data rows for a device to the database on `con`.
 
-    Note: The `data_rows`, as returned by the Weatherflow API, already contain
+    Note: The `data_rows`, as returned by the Tempest API, already contain
     the `device_id`, so there is no need to pass it to this function.
 
     """
