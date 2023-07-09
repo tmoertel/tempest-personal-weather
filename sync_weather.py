@@ -48,6 +48,7 @@ $HOME/bin directory. If you've installed it elsewhere, update the entry accordin
 import argparse
 import collections
 import csv
+import gzip
 import logging
 import sqlite3
 import time
@@ -262,7 +263,13 @@ def _fetch_device_data_for_range(api_token, device_id, start_timestamp, end_time
         f"&format=csv"
         f"&token={_q(api_token)}"
     )
-    csv_table = urllib.request.urlopen(url).read().decode("utf-8")
+    request = urllib.request.Request(url)
+    request.add_header("Accept-Encoding", "gzip")
+    response = urllib.request.urlopen(request)
+    data = response.read()
+    if response.info().get("Content-Encoding") == "gzip":
+        data = gzip.decompress(data)
+    csv_table = data.decode("utf-8")
     data_rows = csv.DictReader(csv_table.splitlines())
     return list(data_rows)
 
