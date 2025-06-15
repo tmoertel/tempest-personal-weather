@@ -191,6 +191,18 @@ def _most_recent_device_timestamp(device_id, con):
     return max_timestamp
 
 
+def _least_recent_device_timestamp(device_id, con):
+    """Gets the least-recent timestamp for a device in the database."""
+    with con:
+        (min_timestamp,) = con.execute(
+            "SELECT MIN(timestamp) FROM weather WHERE device_id = ?", (device_id,)
+        ).fetchone()
+    # If we have no saved data for the device, we return 0 ("the start of time").
+    if min_timestamp is None:
+        return 0
+    return min_timestamp
+
+
 def _sync_device(api_token, device_id, con):
     """Syncs the device given by `device_id` to the database open on `con`."""
     # Compute the time range we want to fill with data from the Tempest API.
@@ -203,6 +215,16 @@ def _sync_device(api_token, device_id, con):
     # Sync at least 24 hours of data to allow Tempest the chance to revise recent data.
     start_timestamp = min(most_recent_timestamp, end_timestamp - ONE_DAY_IN_SECONDS)
     _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp)
+    # Allow for the possibility that a previous sync attempt couldn't download all of
+    # the requested data because of, for example, rate limiting. Since we download
+    # data in reverse chronological order, we can fill any gaps by trying to sync the
+    # range between time 0 and the earliest date in the database. If this attempt is
+    # also rate limited, that's okay: we'll incrementally fill in more of the gap each
+    # time the tool is run.
+    if most_recent_timestamp == 0:
+        return  # Nothing to do: we already downloaded from time 0.
+    least_recent_timestamp = _least_recent_device_timestamp(device_id, con)
+    _sync_device_for_range(api_token, device_id, con, 0, least_recent_timestamp - 1)
 
 
 def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp):
