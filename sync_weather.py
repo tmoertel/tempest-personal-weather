@@ -191,18 +191,72 @@ def _most_recent_device_timestamp(device_id, con):
     return max_timestamp
 
 
+def _oldest_device_timestamp(device_id, con):
+    """Gets the oldest timestamp for a device in the database."""
+    with con:
+        (min_timestamp,) = con.execute(
+            "SELECT MIN(timestamp) FROM weather WHERE device_id = ?", (device_id,)
+        ).fetchone()
+    # If we have no saved data for the device, return None
+    return min_timestamp
+
+
 def _sync_device(api_token, device_id, con):
-    """Syncs the device given by `device_id` to the database open on `con`."""
-    # Compute the time range we want to fill with data from the Tempest API.
+    """Syncs the device given by `device_id` to the database open on `con`.
+    
+    This function has two modes of operation:
+    1. Forward sync: Get all data from the most recent timestamp to now
+    2. Backward sync: Check if there's data older than the oldest entry we have
+    """
     logging.info("syncing data for device %d", device_id)
+    
+    # PART 1: Forward sync - get newest data
     most_recent_timestamp = _most_recent_device_timestamp(device_id, con)
-    end_timestamp = int(time.time())  # Now.
+    end_timestamp = int(time.time())  # Now
+    
     logging.info(
         "device %d has most_recent_timestamp = %d", device_id, most_recent_timestamp
     )
+    
     # Sync at least 24 hours of data to allow Tempest the chance to revise recent data.
     start_timestamp = min(most_recent_timestamp, end_timestamp - ONE_DAY_IN_SECONDS)
     _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp)
+    
+    # PART 2: Backward sync - check for older data
+    oldest_timestamp = _oldest_device_timestamp(device_id, con)
+    
+    # Only try to get older data if we have at least one record
+    if oldest_timestamp is not None:
+        logging.info(
+            "device %d has oldest_timestamp = %d, checking for older data", 
+            device_id, oldest_timestamp
+        )
+        
+        # Try to get data from ONE SECOND before our oldest record to avoid overlap
+        # and go back one full day from there
+        test_end = oldest_timestamp - 1  # Subtract 1 second to avoid getting the same record
+        test_start = test_end - ONE_DAY_IN_SECONDS
+        
+        logging.info(
+            "Checking for data between %d and %d", 
+            test_start, test_end
+        )
+        
+        # Make a test request to see if there's older data
+        test_data = _fetch_device_data_for_range(
+            api_token, device_id, test_start, test_end
+        )
+        
+        if test_data:
+            logging.info(
+                "Found %d older records for device %d, retrieving historical data",
+                len(test_data), device_id
+            )
+            # Save these records first
+            _write_data_for_device(con, test_data)
+            
+            # Then continue getting older data in chunks
+            _sync_device_for_range(api_token, device_id, con, 0, test_start)
 
 
 def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp):
