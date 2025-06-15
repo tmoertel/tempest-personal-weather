@@ -180,27 +180,22 @@ def _open_database(path):
 
 
 def _most_recent_device_timestamp(device_id, con):
-    """Gets the most-recent timestamp for a device in the database."""
-    with con:
-        (max_timestamp,) = con.execute(
-            "SELECT MAX(timestamp) FROM weather WHERE device_id = ?", (device_id,)
-        ).fetchone()
-    # If we have no saved data for the device, we return 0 ("the start of time").
-    if max_timestamp is None:
-        return 0
-    return max_timestamp
+    return _get_extreme_device_timestamp(device_id, con, "MAX")
 
 
 def _least_recent_device_timestamp(device_id, con):
-    """Gets the least-recent timestamp for a device in the database."""
+    return _get_extreme_device_timestamp(device_id, con, "MIN")
+
+
+def _get_extreme_device_timestamp(device_id, con, summary_function):
+    assert summary_function in ("MIN", "MAX")
     with con:
-        (min_timestamp,) = con.execute(
-            "SELECT MIN(timestamp) FROM weather WHERE device_id = ?", (device_id,)
+        (timestamp,) = con.execute(
+            f"SELECT {summary_function}(timestamp) FROM weather WHERE device_id = ?",
+            (device_id,),
         ).fetchone()
     # If we have no saved data for the device, we return 0 ("the start of time").
-    if min_timestamp is None:
-        return 0
-    return min_timestamp
+    return timestamp or 0
 
 
 def _sync_device(api_token, device_id, con):
