@@ -179,15 +179,8 @@ def _open_database(path):
     return con
 
 
-def _most_recent_device_timestamp(device_id, con):
-    return _get_extreme_device_timestamp(device_id, con, "MAX")
-
-
-def _least_recent_device_timestamp(device_id, con):
-    return _get_extreme_device_timestamp(device_id, con, "MIN")
-
-
 def _get_extreme_device_timestamp(device_id, con, summary_function):
+    """Gets the MIN or MAX timestamp of a device's records in the database."""
     assert summary_function in ("MIN", "MAX")
     with con:
         (timestamp,) = con.execute(
@@ -202,7 +195,7 @@ def _sync_device(api_token, device_id, con):
     """Syncs the device given by `device_id` to the database open on `con`."""
     # Compute the time range we want to fill with data from the Tempest API.
     logging.info("syncing data for device %d", device_id)
-    most_recent_timestamp = _most_recent_device_timestamp(device_id, con)
+    most_recent_timestamp = _get_extreme_device_timestamp(device_id, con, "MAX")
     end_timestamp = int(time.time())  # Now.
     logging.info(
         "device %d has most_recent_timestamp = %d", device_id, most_recent_timestamp
@@ -218,7 +211,7 @@ def _sync_device(api_token, device_id, con):
     # time the tool is run.
     if most_recent_timestamp == 0:
         return  # Nothing to do: we already downloaded from time 0.
-    least_recent_timestamp = _least_recent_device_timestamp(device_id, con)
+    least_recent_timestamp = _get_extreme_device_timestamp(device_id, con, "MIN")
     _sync_device_for_range(api_token, device_id, con, 0, least_recent_timestamp - 1)
 
 
