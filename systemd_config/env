@@ -1,0 +1,3 @@
+# /home/username/projects/tempest/.env
+TEMPEST_API_TOKEN=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+TEMPEST_DEVICE_ID=yyyyyy

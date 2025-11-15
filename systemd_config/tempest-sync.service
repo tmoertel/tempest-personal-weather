@@ -1,0 +1,12 @@
+[Unit]
+Description=Tempest sync (bronze upsert)
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/username/projects/tempest
+EnvironmentFile=/home/username/projects/tempest/.env
+Environment=PYTHONUNBUFFERED=1
+# Prevent overlap if a run takes longer than the interval
+ExecStart=/usr/bin/env bash -lc -- 'mkdir -p logs; exec /usr/bin/flock -n logs/sync.lock ./run_sync.sh'
+
