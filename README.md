@@ -26,6 +26,11 @@ and keep it up to date.
 **Tip:** To get an API token for your personal weather stations, see "Getting Started" at
 https://weatherflow.github.io/Tempest/api/.
 
+**Note on rate limiting:** If you have a substantial backlog of data to download, the
+Tempest API may apply rate limiting, preventing you from downloading all of your data
+in one attempt. If this happens, just wait a few hours and try again. The script will
+automatically resume downloading where it left off. Just repeat this process as needed
+to download your full backlog of historical data.
 
 ## Usage
 
