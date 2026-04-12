@@ -32,6 +32,13 @@ in one attempt. If this happens, just wait a few hours and try again. The script
 automatically resume downloading where it left off. Just repeat this process as needed
 to download your full backlog of historical data.
 
+
+## License
+
+This project is licensed under the GNU GPLv3. See the [LICENSE](LICENSE) file that came
+with the project for the terms and conditions.
+
+
 ## Usage
 
 Here's how you run the tool:
@@ -101,8 +108,70 @@ This crontab entry assumes that you have copied the `sync_weather.py` executable
 `$HOME/bin` directory. If you've installed it elsewhere, update the entry accordingly.
 
 
-## License
+## Troubleshooting
 
-This project is licensed under the GNU GPLv3. See the [LICENSE](LICENSE) file that came
-with the project for the terms and conditions.
+If you are having problems, please consider the following advice.
 
+### The script does not download all of your historical data when you set up your database
+
+There are several potential causes of this problem:
+
+* **Your API token is not registered as the owner of the device(s)
+  whose data you are attempting to download.** According to
+  [the Tempest API documentation](https://apidocs.tempestwx.com/reference/getobservationsbydeviceid#:~:text=Generally%2C%20a%20user%20can%20only%20query%20data%20for%20their%20own%20devices%2C%20using%20the%20API%20token%20associated%20with%20their%20account.%20Commercial%20users%20may%20be%20able%20to%20query%20all%20devices%20associated%20with%20a%20mesonet.),
+  “Generally, a user can only query data for their own devices, using
+  the API token associated with their account. Commercial users may be
+  able to query all devices associated with a mesonet.” **Solution:**
+  Obtain an authorized API token for the devices, and use it when you
+  run the sync\_weather script.
+* **You have been rate limited.** The Tempest API does not allow you
+  to download a massive quantity of data at once. **Solution:** Wait a
+  few hours, then rerun the script. The script will resume downloading
+  where it left off. Continue this process until all historical data
+  is downloaded. If the script is scheduled to run periodically (see
+  the crontab recipe above), it should eventually download all
+  historical data after a few iterations. If it still fails, proceed
+  to the next potential cause (gaps).
+* **There is a gap in your recorded data spanning more than 24
+  hours.** The Tempest API does not provide a method to determine the
+  earliest date of the data available for a device, so the script works
+  backward, downloading one day’s data at a time until it hits a day
+  having no data. If any of your devices failed to record data for
+  more than 24 hours, the script will be unable to find its data
+  earlier than the gap. **Solution:** There is no easy solution, but
+  there is a workaround:
+  * Starting with the most-recent gap—you must work in reverse
+    chronological order—insert a dummy record into your weather
+    database to indicate the start of the gap, then re-run the script.
+    * To find the most-recent gap, use the Tempest app on your phone
+      or on the web to search backward from the current day. When you
+      find the gap, find the date of the first day without any data.
+    * Convert this date into a Unix timestamp (the duration in seconds
+      since January 1, 1970, 00:00 UTC). On Unix-like systems, you can
+      use the **date** command to convert a date into a timestamp. For
+      example, to convert April 3, 2026, you would use this command:
+      `date --date='April 3, 2026' '+%s'` and it would emit the
+      following output: `1775188800`
+    * Insert a dummy record into the database for the device and
+      timestamp. For example: `sqlite3 $HOME/weather.db "INSERT INTO
+      weather (device_id, timestamp) VALUES (1234567, 1775188800);"`
+      Remember to replace `$HOME/weather.db` with the path to your
+      database, `1234567` with the ID of the device in question, and
+      `1775188800` with the timestamp you found in the previous step.
+  * Run the script, passing in  the `--verbose` option to observe what
+    it downloads.
+  * After it downloads the data before the gap, repeat the process for
+    the next most-recent gap, working backward through the recorded
+    data for the device.
+
+### Other problems
+
+To diagnose other problems, manually run the sync command, but add the
+**\--verbose** option and **save the output to a file**. For example:
+
+`$HOME/bin/sync_weather.py --verbose --api_token "$YOUR_API_TOKEN" --database $HOME/weather.db --device_id 1234567 >& diagnostics.txt`
+
+Remember to replace $HOME/weather.db with the path to your database
+and 1234567 with the ID of the device in question.
+
+Inspect the `diagnostics.txt` file for clues.
