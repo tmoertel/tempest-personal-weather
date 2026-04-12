@@ -132,37 +132,16 @@ There are several potential causes of this problem:
   the crontab recipe above), it should eventually download all
   historical data after a few iterations. If it still fails, proceed
   to the next potential cause (gaps).
-* **There is a gap in your recorded data spanning more than 24
-  hours.** The Tempest API does not provide a method to determine the
-  earliest date of the data available for a device, so the script works
-  backward, downloading one day’s data at a time until it hits a day
-  having no data. If any of your devices failed to record data for
-  more than 24 hours, the script will be unable to find its data
-  earlier than the gap. **Solution:** There is no easy solution, but
-  there is a workaround:
-  * Starting with the most-recent gap—you must work in reverse
-    chronological order—insert a dummy record into your weather
-    database to indicate the start of the gap, then re-run the script.
-    * To find the most-recent gap, use the Tempest app on your phone
-      or on the web to search backward from the current day. When you
-      find the gap, find the date of the first day without any data.
-    * Convert this date into a Unix timestamp (the duration in seconds
-      since January 1, 1970, 00:00 UTC). On Unix-like systems, you can
-      use the **date** command to convert a date into a timestamp. For
-      example, to convert April 3, 2026, you would use this command:
-      `date --date='April 3, 2026' '+%s'` and it would emit the
-      following output: `1775188800`
-    * Insert a dummy record into the database for the device and
-      timestamp. For example: `sqlite3 $HOME/weather.db "INSERT INTO
-      weather (device_id, timestamp) VALUES (1234567, 1775188800);"`
-      Remember to replace `$HOME/weather.db` with the path to your
-      database, `1234567` with the ID of the device in question, and
-      `1775188800` with the timestamp you found in the previous step.
-  * Run the script, passing in  the `--verbose` option to observe what
-    it downloads.
-  * After it downloads the data before the gap, repeat the process for
-    the next most-recent gap, working backward through the recorded
-    data for the device.
+* **There is a gap in your recorded data spanning more than 7 days.**
+  The Tempest API does not provide a method to determine the earliest
+  date of the data available for a device, so the script works
+  backward, downloading one day’s data at a time until it hits a gap
+  of several days and then concludes that there is no more data.
+  **Solution:** Use the Tempest app on your phone or computer to find
+  the gaps in your recorded data, then rerun the script but supply the
+  `--maximum_gap_size_in_days N` option, replacing `N` with enough
+  days to span the gaps you found. For example, if the largest gap was
+  12 days, you could supply `14`.
 
 ### Other problems
 

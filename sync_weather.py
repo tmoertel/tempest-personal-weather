@@ -100,7 +100,7 @@ COLUMN_SQL_TYPES = collections.defaultdict(
 # SQL statement used to initialize the `weather` table if needed.
 CREATE_WEATHER_TABLE_SQL_TEMPLATE = f"""
 CREATE TABLE IF NOT EXISTS weather (
-  {', '.join('%s %s' % (col, COLUMN_SQL_TYPES[col]) for col in COLUMNS)},
+  {", ".join("%s %s" % (col, COLUMN_SQL_TYPES[col]) for col in COLUMNS)},
   PRIMARY KEY (device_id, timestamp)
 );
 """.strip()
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS weather (
 # may revise data, and we prefer the most-recent version of any data we
 # already have.
 INSERT_WEATHER_DATA_SQL_TEMPLATE = f"""
-REPLACE INTO weather VALUES ({', '.join(':%s' % (col,) for col in COLUMNS)});
+REPLACE INTO weather VALUES ({", ".join(":%s" % (col,) for col in COLUMNS)});
 """.strip()
 
 # SQL statement used to identify gaps in the time series for a device.
@@ -160,6 +160,13 @@ def _parse_args():
         help="The id(s) of the device(s) to sync data for.",
     )
     parser.add_argument(
+        "--maximum_gap_size_in_days",
+        required=False,
+        type=int,
+        default=7,
+        help="The number of days without data to allow before concluding that no more data exists. Defaults to 7 days.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         help="Emit progress information.",
@@ -191,7 +198,7 @@ def _get_extreme_device_timestamp(device_id, con, summary_function):
     return timestamp or 0
 
 
-def _sync_device(api_token, device_id, con):
+def _sync_device(api_token, device_id, con, maximum_gap_size_in_days):
     """Syncs the device given by `device_id` to the database open on `con`."""
     # Compute the time range we want to fill with data from the Tempest API.
     logging.info("syncing data for device %d", device_id)
@@ -202,7 +209,14 @@ def _sync_device(api_token, device_id, con):
     )
     # Sync at least 24 hours of data to allow Tempest the chance to revise recent data.
     start_timestamp = min(most_recent_timestamp, end_timestamp - ONE_DAY_IN_SECONDS)
-    _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp)
+    _sync_device_for_range(
+        api_token,
+        device_id,
+        con,
+        start_timestamp,
+        end_timestamp,
+        maximum_gap_size_in_days,
+    )
     # Allow for the possibility that a previous sync attempt couldn't download all of
     # the requested data because of, for example, rate limiting. Since we download
     # data in reverse chronological order, we can fill any gaps by trying to sync the
@@ -212,12 +226,28 @@ def _sync_device(api_token, device_id, con):
     if most_recent_timestamp == 0:
         return  # Nothing to do: we already downloaded from time 0.
     least_recent_timestamp = _get_extreme_device_timestamp(device_id, con, "MIN")
-    _sync_device_for_range(api_token, device_id, con, 0, least_recent_timestamp - 1)
+    _sync_device_for_range(
+        api_token,
+        device_id,
+        con,
+        0,
+        least_recent_timestamp - 1,
+        maximum_gap_size_in_days,
+    )
 
 
-def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_timestamp):
+def _sync_device_for_range(
+    api_token, device_id, con, start_timestamp, end_timestamp, maximum_gap_size_in_days
+):
     """Syncs data for a device over a time range."""
+    gap_size_in_days = 0
     range_start = start_timestamp
+    logging.info(
+        "*** syncing range for device %d: timestamp range (%d, %d) ***",
+        device_id,
+        start_timestamp,
+        end_timestamp,
+    )
 
     # Work backward to the start of the range.
     while range_start < end_timestamp:
@@ -232,14 +262,23 @@ def _sync_device_for_range(api_token, device_id, con, start_timestamp, end_times
         data_rows = _fetch_device_data_for_range(
             api_token, device_id, start_timestamp, end_timestamp
         )
-        # Exit the loop if we've exhausted the data from Tempest.
+        # Step to the preceding chunk of data.
+        end_timestamp = start_timestamp
+        # If we got back no data (a "blank day"), try the preceding day or stop.
         if not data_rows:
+            gap_size_in_days += 1
+            logging.info(
+                "day %d has no data; gap size: %d", start_timestamp, gap_size_in_days
+            )
+            if gap_size_in_days <= maximum_gap_size_in_days:
+                continue  # Try the previous day.
+            # We've hit a sequence of blank days long enough to conclude
+            # that there is no earlier data to download. Time to stop.
             break
         # Write the data to the weather database.
+        gap_size_in_days = 0
         _write_data_for_device(con, data_rows)
         logging.info("wrote %d rows for device %d", len(data_rows), device_id)
-        # And continue with the next chunk of data.
-        end_timestamp = start_timestamp
 
     logging.info("finished sync for device %d", device_id)
 
@@ -300,7 +339,7 @@ def main():
     logging.basicConfig(level=args.loglevel)
     con = _open_database(args.database)
     for device_id in args.device_id:
-        _sync_device(args.api_token, device_id, con)
+        _sync_device(args.api_token, device_id, con, args.maximum_gap_size_in_days)
 
 
 if __name__ == "__main__":
