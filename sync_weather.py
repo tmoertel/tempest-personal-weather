@@ -251,7 +251,7 @@ def _sync_device_for_range(
 
     # Work backward to the start of the range.
     while range_start < end_timestamp:
-        # Limit each request to one days' data; otherwise, we won't get 1-minute resolution.
+        # Limit each request to one day's data; otherwise, we won't get 1-minute resolution.
         start_timestamp = max(end_timestamp - ONE_DAY_IN_SECONDS, range_start)
         logging.info(
             "fetching data for device %d: timestamp range (%d, %d)",
